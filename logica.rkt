@@ -99,56 +99,43 @@
           (actualizar_tablero t i j (contar-minas t i j filas columnas))))))
 
 ;; -------------------------------------------
-;; NUEVO: Dificultad -> porcentaje (sin let/map/apply)
+;; Dificultad_a_porcentaje
+;; En esta funcion agarro el dato ingresado por el usuario y lo convierto en porcentajes reales
+;; Por decirlo asi, lo paso de string a numero
 ;; -------------------------------------------
-(define (dificultad->porcentaje dif)
+(define (dificultad_a_porcentaje dif)
   (cond [(eq? dif 'facil)   0.10]
         [(eq? dif 'media)   0.15]
         [(eq? dif 'dificil) 0.20]
         [else               0.10]))
+
 ;; -------------------------------------------
-;; NUEVO: Punto de entrada para la interfaz
-;; Genera tablero según filas/columnas y dificultad,
-;; imprime en consola con tu mostrar-tablero y lo retorna.
-;; Usa SOLO tus funciones existentes: crear_tablero, poner_minas, llenar-numeros.
-;; (sin let/map/apply)
+;; Esta se podria decir que es una funcion temporal que toma los datos ingresados y genera el tablero en consola
+;; Por lo que la idea seria seguir haciendo lo mismo pero ahora imprimiendolo pero en interfaz
 ;; -------------------------------------------
 (define (generar-tablero-consola filas columnas dificultad-sym)
   ;; normaliza límites mínimos y enteros
   (define filas*    (inexact->exact (floor (if (< filas 2) 2 filas))))
   (define columnas* (inexact->exact (floor (if (< columnas 2) 2 columnas))))
   (define total     (* filas* columnas*))
-  (define porc      (dificultad->porcentaje dificultad-sym))
+  (define porc      (dificultad_a_porcentaje dificultad-sym))
   (define n-minas   (inexact->exact (round (* total porc))))
   (define n-minas*  (if (< n-minas 1) 1 n-minas))
 
-  ;; usa TU creador de tablero por filas/columnas
+  ;; Aqui usamos el tablero generado por el usuario
   (define tablero-base (crear_tablero filas* columnas*))
-  ;; usa TU generador de minas
+  ;; Generador de minas en tablero
   (define tablero-minas (poner_minas tablero-base n-minas* filas* columnas*))
-  ;; usa TU llenador de números
+  ;; Generador de numeros en tablero
   (define tablero-final (llenar-numeros tablero-minas filas* columnas*))
 
   (printf "Tablero ~ax~a | dificultad: ~a (~a minas)\n"
           filas* columnas* dificultad-sym n-minas*)
-  (mostrar-tablero tablero-final) ; tu printer
+  (mostrar-tablero tablero-final) ; Linea que imprime el tablero ingresado por el usuario
   tablero-final)
+
 ;;---------------------------------------------------
 ;; Función que muestra el tablero
 ;;---------------------------------------------------
 (define (mostrar-tablero tablero)
   (for-each displayln tablero))
-
-;;---------------------------------------------------
-;; Crear tablero 8x8 con 6 minas 10% nivel facil
-;;---------------------------------------------------
-;(define filas 8)
-;(define columnas 8)
-;(define num-minas 6)
-
-;(define tablero (crear-tablero filas columnas))
-;(define tablero-con-minas (poner_minas tablero num-minas filas columnas))
-;(define tablero-final (llenar-numeros tablero-con-minas filas columnas))
-
-;; Mostrar el tablero final
-;(mostrar-tablero tablero-final)
