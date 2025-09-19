@@ -1,7 +1,8 @@
 #lang racket
 (provide crear-tablero
          parseo-int
-         tamano-valido?)
+         tamano-valido?
+         generar-tablero-consola)
 
 ;; Se necesita importar random para generar las minas aleatoriamente
 (require racket/random)
@@ -71,11 +72,13 @@
       (poner_minas (poner-una-mina tablero) (- num-minas 1) filas columnas)))
 
 ;;---------------------------------------------------
-;; Función para contar minas alrededor de una celda Aqui esta el error, pero no se donde xd 
+;; Función para contar minas alrededor de una celda
 ;;---------------------------------------------------
 (define (contar-minas tablero fila columna filas columnas)
   (define vecinos
-    (for/list ([i (in-range (- fila 1) (+ fila 2))]
+     ;Luis el error estaba aqui, solo se estaba revisando 3 celdas en diagonal, no las 8 vecinas. Para revisarlas se tiene que anidar los bucles por
+    ;por decirlo asi, eso se hace con el "for*/list"
+    (for*/list ([i (in-range (- fila 1) (+ fila 2))]
                [j (in-range (- columna 1) (+ columna 2))]
                #:when (and (>= i 0) (< i filas) (>= j 0) (< j columnas)
                            (not (and (= i fila) (= j columna))))) ; excluir la celda central
@@ -95,6 +98,41 @@
           t
           (actualizar_tablero t i j (contar-minas t i j filas columnas))))))
 
+;; -------------------------------------------
+;; NUEVO: Dificultad -> porcentaje (sin let/map/apply)
+;; -------------------------------------------
+(define (dificultad->porcentaje dif)
+  (cond [(eq? dif 'facil)   0.10]
+        [(eq? dif 'media)   0.15]
+        [(eq? dif 'dificil) 0.20]
+        [else               0.10]))
+;; -------------------------------------------
+;; NUEVO: Punto de entrada para la interfaz
+;; Genera tablero según filas/columnas y dificultad,
+;; imprime en consola con tu mostrar-tablero y lo retorna.
+;; Usa SOLO tus funciones existentes: crear_tablero, poner_minas, llenar-numeros.
+;; (sin let/map/apply)
+;; -------------------------------------------
+(define (generar-tablero-consola filas columnas dificultad-sym)
+  ;; normaliza límites mínimos y enteros
+  (define filas*    (inexact->exact (floor (if (< filas 2) 2 filas))))
+  (define columnas* (inexact->exact (floor (if (< columnas 2) 2 columnas))))
+  (define total     (* filas* columnas*))
+  (define porc      (dificultad->porcentaje dificultad-sym))
+  (define n-minas   (inexact->exact (round (* total porc))))
+  (define n-minas*  (if (< n-minas 1) 1 n-minas))
+
+  ;; usa TU creador de tablero por filas/columnas
+  (define tablero-base (crear_tablero filas* columnas*))
+  ;; usa TU generador de minas
+  (define tablero-minas (poner_minas tablero-base n-minas* filas* columnas*))
+  ;; usa TU llenador de números
+  (define tablero-final (llenar-numeros tablero-minas filas* columnas*))
+
+  (printf "Tablero ~ax~a | dificultad: ~a (~a minas)\n"
+          filas* columnas* dificultad-sym n-minas*)
+  (mostrar-tablero tablero-final) ; tu printer
+  tablero-final)
 ;;---------------------------------------------------
 ;; Función que muestra el tablero
 ;;---------------------------------------------------
@@ -104,13 +142,13 @@
 ;;---------------------------------------------------
 ;; Crear tablero 8x8 con 6 minas 10% nivel facil
 ;;---------------------------------------------------
-(define filas 8)
-(define columnas 8)
-(define num-minas 6)
+;(define filas 8)
+;(define columnas 8)
+;(define num-minas 6)
 
-(define tablero (crear-tablero filas columnas))
-(define tablero-con-minas (poner_minas tablero num-minas filas columnas))
-(define tablero-final (llenar-numeros tablero-con-minas filas columnas))
+;(define tablero (crear-tablero filas columnas))
+;(define tablero-con-minas (poner_minas tablero num-minas filas columnas))
+;(define tablero-final (llenar-numeros tablero-con-minas filas columnas))
 
 ;; Mostrar el tablero final
-(mostrar-tablero tablero-final)
+;(mostrar-tablero tablero-final)
