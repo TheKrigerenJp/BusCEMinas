@@ -1,151 +1,196 @@
-#lang racket/gui
-(require racket/class
-         racket/string
-         "logica.rkt")
+#lang racket
+(require racket/gui
+         "logica.rkt") ; usar: preparar-tablero, revelar-pos, visible?, valor-en, etc.
 
-;; ==============================
+;; =========================================================
+;; Estado del juego
+;; =========================================================
+(define *filas* 0)
+(define *columnas* 0)
+(define *tablero* '())   ; números/"*"
+(define *mascara* '())   ; 0/1 visibles
+(define *btns* #f)       ; vector de vectores de button%
+(define board-panel #f)  ; panel que contendrá las filas de botones
+
+;; =========================================================
 ;; Ventana principal
-;; ==============================
-(define nombre-app "Buscaminas")
-(define principal (new frame% [label nombre-app]))
+;; =========================================================
+(define frame
+  (new frame%
+       [label "Buscaminas - GUI"]
+       [width  800]
+       [height 800]))
 
-(define contenedor
-  (new vertical-panel%
-       [parent principal]
-       [spacing 10]
-       [alignment '(center center)]
-       [horiz-margin 80]
-       [vert-margin 80]))
+(define root (new vertical-panel% [parent frame] [stretchable-height #t] [stretchable-width #t]))
+(define barra (new horizontal-panel% [parent root] [stretchable-height #f] [spacing 8]))
 
-(new message%
-     [parent contenedor]
-     [label "Pulsa \"Iniciar partida\" y elige el tamaño (8 a 15)."])
-
-;; Panel persistente del tablero
-(define area-tablero
-  (new vertical-panel%
-       [parent contenedor]
-       [alignment '(center center)]
-       [spacing 0])) ; <- sin espacio vertical entre filas
-
-;; ==============================
-;; Utilidad: crear un bitmap sólido
-;; ==============================
-(define (bitmap-color ancho alto color%)
-  (define bm (make-object bitmap% ancho alto))
-  (define dc (make-object bitmap-dc% bm))
-  (send dc set-brush (make-object brush% color% 'solid))
-  (send dc set-pen   (make-object pen% color% 1 'solid))
-  (send dc draw-rectangle 0 0 ancho alto)
-  (send dc set-bitmap #f)
-  bm)
-
-;; Colores y tamaños
-(define color-celda (make-object color% 173 216 230)) ; azul claro
-(define tam-celda 28) ; px por celda
-
-;; ==============================
-;; Botón inicial
-;; ==============================
 (new button%
-     [parent contenedor]
-     [label "Iniciar partida"]
-     [callback (lambda (_boton _evento) (POP_Tama_Difi))])
+     [parent barra]
+     [label "Nuevo juego"]
+     [callback (lambda (_btn _evt) (abrir-configurar-y-generar!))])
 
-;; ==============================
-;; Diálogo de tamaño de tablero
-;; ==============================
-(define (POP_Tama_Difi)
-  (define dialogo (new dialog% [label "Tamaño del tablero"] [parent principal]))
-  (define panel   (new vertical-panel% [parent dialogo] [spacing 8] [horiz-margin 12] [vert-margin 12]))  
+;; Contenedor del tablero, esta version esta hecha para regenerarse en el momento que pierda (la misma logica se tiene que agarrar cuando gana)
+(set! board-panel (new vertical-panel% [parent root] [spacing 0]
+                       [stretchable-height #t] [stretchable-width #t]))
 
-  (new message% [parent panel] [label "Ingrese enteros entre 8 y 15:"])
+(send frame show #t)
+
+;; =========================================================
+;; Utilidades de UI
+;; =========================================================
+;; Vaciar un contenedor eliminando todos sus hijos sin reparent a #f
+(define (clear-panel! p)
+  (send p change-children (lambda (kids) '())))
+
+
+
+;; =========================================================
+;; Diálogo de configuración (tamaño + dificultad)
+;; =========================================================
+(define (solicitar-configuracion-tablero)
+  (define dlg   (new dialog% [label "Configurar Buscaminas"]))
+  (define panel (new vertical-panel% [parent dlg] [spacing 6] [border 10]))
+
+  (new message% [parent panel] [label "Tamaño del tablero (filas x columnas)"])
+
+  (define hp1 (new horizontal-panel% [parent panel] [spacing 6]))
+  (new message% [parent hp1] [label "Filas:"])
+  (define campo-filas (new text-field%
+                         [parent hp1]
+                         [label ""]
+                         [init-value "8"]
+                         [min-width 60]))
+  (new message% [parent hp1] [label "Columnas:"])
+  (define campo-cols  (new text-field%
+                         [parent hp1]
+                         [label ""]
+                         [init-value "8"]
+                         [min-width 60]))
+
   (new message% [parent panel] [label "Dificultad (porcentaje de minas)"])
-  
-  (define caja-dificultad ;la caja que solicita la dificultad
-  (new radio-box%
-       [parent panel]
-       [label "Dificultad"] 
-       [choices (list "Fácil (10%)" "Media (15%)" "Difícil (20%)")]
-       [style '(vertical)]
-       [selection 0]))
-  (define fila (new horizontal-panel% [parent panel] [spacing 8]))
-  (define campo-ancho (new text-field% [parent fila] [label "Ancho:"] [init-value "8"]))
-  (define campo-alto  (new text-field% [parent fila] [label "Alto:"]  [init-value "8"]))
+  (define caja-dificultad
+    (new radio-box%
+         [parent panel]
+         [label "Dificultad"]
+         [choices (list "Fácil (10%)" "Media (15%)" "Difícil (20%)")]
+         [style '(vertical)]
+         [selection 0]))
 
-  ;; Botón aceptar con validación general y mensaje emergente
-  (define (aceptar)
-    (define w (parseo-int (send campo-ancho get-value)))
-    (define h (parseo-int (send campo-alto  get-value)))
+  (define botones (new horizontal-panel% [parent panel] [spacing 8]))
+  (define res #f)
 
-    (define sel (send caja-dificultad get-selection))
-    (define dif-sym (cond [(= sel 0) 'facil]
-                          [(= sel 1) 'media]
-                          [else      'dificil]))
+  (define (cerrar con-aceptar?)
+    (when con-aceptar?
+      (define filas-num    (parseo-int (string-trim (send campo-filas get-value))))
+      (define columnas-num (parseo-int (string-trim (send campo-cols  get-value))))
+      (define sel (send caja-dificultad get-selection))
+      (define dif-sym (cond [(= sel 0) 'facil]
+                            [(= sel 1) 'media]
+                            [else      'dificil]))
+      (when (and (tamano-valido? filas-num)
+                 (tamano-valido? columnas-num))
+        (set! res (list filas-num columnas-num dif-sym))))
+    (send dlg show #f))
 
-    (when (and (tamano-valido? w)
-               (tamano-valido? h))
-      (generar-tablero-consola w h dif-sym) ; imprime en consola usando la funcion hecha para probar el tablero
-      (send dialogo show #f))
+  (new button% [parent botones] [label "Cancelar"]
+       [callback (lambda (_btn _evt) (cerrar #f))])
 
-    (if (and (tamano-valido? w) (tamano-valido? h))
-        (begin
-          (send dialogo show #f)
-          (on-seleccion-tamano w h))
-        (message-box "Error"
-                     "Entrada inválida: use enteros entre 8 y 15."
-                     dialogo
-                     '(ok stop))))
+  (new button% [parent botones] [label "Aceptar"]
+       [callback (lambda (_btn _evt) (cerrar #t))])
 
-  ;; Botones aceptar/cancelar
-  (define fila-botones (new horizontal-panel% [parent panel] [spacing 8] [alignment '(right center)]))
-  (new button% [parent fila-botones] [label "Cancelar"] [callback (lambda (_boton _evento) (send dialogo show #f))])
-  (new button% [parent fila-botones] [label "Aceptar"]  [callback (lambda (_boton _evento) (aceptar))])
+  (send dlg center)
+  (send dlg show #t)
+  res)
 
-  (send dialogo center 'parent)
-  (send dialogo show #t))
+;; =========================================================
+;; Funcion que contruye el grid, esta haciendo uso de paneles anidados (un panel horizontal y uno vertical)
+;; =========================================================
+(define (construir-grid! filas columnas)
+  (clear-panel! board-panel)
+  (set! *btns* (make-vector filas))
+  (for ([ri (in-range filas)])
+    ;; fila como horizontal-panel%
+    (define fila-panel (new horizontal-panel% [parent board-panel] [spacing 0]
+                            [stretchable-height #f] [stretchable-width #t]))
+    (define fila-vec (make-vector columnas))
+    (for ([rj (in-range columnas)])
+      (define i0 ri)
+      (define j0 rj)
+      (define b (new button%
+               [parent fila-panel]
+               [label " "]
+               [min-width 28] [min-height 28]
+               [callback (lambda (_btn _evt) (on-click-celda i0 j0))]))
 
-;; ==============================
-;; Render del tablero
-;; ==============================
-(define (renderizar-tablero matriz)
-  ;; limpiar área
-  (for ([hijo (send area-tablero get-children)])
-    (send area-tablero delete-child hijo))
+      (vector-set! fila-vec rj b))
+    (vector-set! *btns* ri fila-vec)))
 
-  (define ancho (if (null? matriz) 0 (length (first matriz))))
-  (define alto  (length matriz))
+;; =========================================================
+;; Funcion refrescar que se encarga de reiniciar el grid 
+;; =========================================================
+(define (refrescar-grid!)
+  (for ([ri (in-range *filas*)])
+    (for ([rj (in-range *columnas*)])
+      (refrescar-celda! ri rj))))
 
-  (new message% [parent area-tablero] [label (format "Tablero: ~a x ~a" ancho alto)])
+(define (refrescar-celda! ri rj)
+  (define b (vector-ref (vector-ref *btns* ri) rj))
+  (if (visible? *mascara* ri rj)
+      (refrescar-celda-visible! b ri rj)
+      (begin
+        (send b set-label " ")
+        (send b enable #t))))
 
-  (define imagen-celda (bitmap-color tam-celda tam-celda color-celda))
+(define (refrescar-celda-visible! b ri rj)
+  (define v (valor-en *tablero* ri rj))
+  (cond
+    [(equal? v "*") (send b set-label "*")]
+    [(and (number? v) (= v 0)) (send b set-label "")]
+    [else (send b set-label (number->string v))])
+  (send b enable #f))
 
-  (for ([fila matriz])
-    (define fila-panel
-      (new horizontal-panel%
-           [parent area-tablero]
-           [spacing 0])) ; sin espacio horizontal entre celdas
 
-    (for ([celda fila])
-      (new button%
-           [parent fila-panel]
-           [label imagen-celda]      ; etiqueta coloreada
-           [horiz-margin 0]
-           [vert-margin 0]
-           [min-width tam-celda]
-           [min-height tam-celda]
-           [stretchable-width #f]
-           [stretchable-height #f]
-           [callback (lambda (_boton _evento) (void))]))))
+;; =========================================================
+;; Función click que se encarga de llamar a revelar-pos para ver que había en esa posición
+;; Dentro de esta función se encuentra el filtro de cuando pierde (when golpeo?)
+;; Muestra todas las casillas al perder
+;; =========================================================
+(define (on-click-celda i j)
+  (define res (revelar-pos *tablero* *mascara* i j *filas* *columnas*))
+  (define nueva-mascara (first res))
+  (define golpeo? (second res))
+  (set! *mascara* nueva-mascara)
+  (refrescar-grid!)
+  (when golpeo?
+    (message-box "Fin del juego" "¡Pisaste una mina!" #f '(ok))
+    ;; Revelar todo tras perder:
+    (set! *mascara*
+          (build-list *filas* (lambda (_)
+                                (build-list *columnas* (lambda (_) 1)))))
+    (refrescar-grid!)))
 
-;; ==============================
-;; Callback selección tamaño
-;; ==============================
-(define (on-seleccion-tamano ancho alto)
-  (define matriz (crear-tablero ancho alto))
-  (renderizar-tablero matriz))
+;; =========================================================
+;; Función encargada de generar el flujo de instrucciones en el momento de crear el tablero
+;; Como existe la opción de volver a iniciar partida toma en cuenta eso para ya tener todo preparado para ese caso 
+;; =========================================================
+(define (abrir-configurar-y-generar!)
+  (define res (solicitar-configuracion-tablero))
+  (when res
+    (define filas-num (first res))
+    (define columnas-num (second res))
+    (define dif-sym (third res))
+    (define pack (preparar-tablero filas-num columnas-num dif-sym))
+    (define nuevo-tablero (first pack))
+    (define nueva-mascara (second pack))
+    (set! *filas* filas-num)
+    (set! *columnas* columnas-num)
+    (set! *tablero* nuevo-tablero)
+    (set! *mascara* nueva-mascara)
+    (construir-grid! *filas* *columnas*)
+    (refrescar-grid!)))
 
-(send principal show #t)
+
+
 
 
 
