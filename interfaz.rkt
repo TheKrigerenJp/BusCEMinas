@@ -11,6 +11,8 @@
 (define *mascara* '())   ; 0/1 visibles
 (define *btns* #f)       ; vector de vectores de button%
 (define board-panel #f)  ; panel que contendrá las filas de botones
+(define *modo-banderas?* #f)   ; este activa o desactiva las banderas desde un botón
+(define *check-banderas* #f)   ; crea el botón de banderas una vez
 
 ;; =========================================================
 ;; Ventana principal
@@ -29,7 +31,7 @@
      [label "Nuevo juego"]
      [callback (lambda (_btn _evt) (abrir-configurar-y-generar!))])
 
-;; Contenedor del tablero, esta version esta hecha para regenerarse en el momento que pierda (la misma logica se tiene que agarrar cuando gana)
+;; Contenedor del tablero
 (set! board-panel (new vertical-panel% [parent root] [spacing 0]
                        [stretchable-height #t] [stretchable-width #t]))
 
@@ -38,11 +40,8 @@
 ;; =========================================================
 ;; Utilidades de UI
 ;; =========================================================
-;; Vaciar un contenedor eliminando todos sus hijos sin reparent a #f
 (define (clear-panel! p)
   (send p change-children (lambda (kids) '())))
-
-
 
 ;; =========================================================
 ;; Diálogo de configuración (tamaño + dificultad)
@@ -55,22 +54,13 @@
 
   (define hp1 (new horizontal-panel% [parent panel] [spacing 6]))
   (new message% [parent hp1] [label "Filas:"])
-  (define campo-filas (new text-field%
-                         [parent hp1]
-                         [label ""]
-                         [init-value "8"]
-                         [min-width 60]))
+  (define campo-filas (new text-field% [parent hp1] [label ""] [init-value "8"] [min-width 60]))
   (new message% [parent hp1] [label "Columnas:"])
-  (define campo-cols  (new text-field%
-                         [parent hp1]
-                         [label ""]
-                         [init-value "8"]
-                         [min-width 60]))
+  (define campo-cols  (new text-field% [parent hp1] [label ""] [init-value "8"] [min-width 60]))
 
   (new message% [parent panel] [label "Dificultad (porcentaje de minas)"])
   (define caja-dificultad
-    (new radio-box%
-         [parent panel]
+    (new radio-box% [parent panel]
          [label "Dificultad"]
          [choices (list "Fácil (10%)" "Media (15%)" "Difícil (20%)")]
          [style '(vertical)]
@@ -92,24 +82,20 @@
         (set! res (list filas-num columnas-num dif-sym))))
     (send dlg show #f))
 
-  (new button% [parent botones] [label "Cancelar"]
-       [callback (lambda (_btn _evt) (cerrar #f))])
-
-  (new button% [parent botones] [label "Aceptar"]
-       [callback (lambda (_btn _evt) (cerrar #t))])
+  (new button% [parent botones] [label "Cancelar"] [callback (lambda (_btn _evt) (cerrar #f))])
+  (new button% [parent botones] [label "Aceptar"]  [callback (lambda (_btn _evt) (cerrar #t))])
 
   (send dlg center)
   (send dlg show #t)
   res)
 
 ;; =========================================================
-;; Funcion que contruye el grid, esta haciendo uso de paneles anidados (un panel horizontal y uno vertical)
+;; Construir el grid
 ;; =========================================================
 (define (construir-grid! filas columnas)
   (clear-panel! board-panel)
   (set! *btns* (make-vector filas))
   (for ([ri (in-range filas)])
-    ;; fila como horizontal-panel%
     (define fila-panel (new horizontal-panel% [parent board-panel] [spacing 0]
                             [stretchable-height #f] [stretchable-width #t]))
     (define fila-vec (make-vector columnas))
@@ -120,13 +106,15 @@
                [parent fila-panel]
                [label " "]
                [min-width 28] [min-height 28]
-               [callback (lambda (_btn _evt) (on-click-celda i0 j0))]))
-
+               [callback (lambda (_btn _evt)
+                           (if *modo-banderas?*
+                               (clickBand i0 j0)
+                               (on-click-celda i0 j0)))]))
       (vector-set! fila-vec rj b))
     (vector-set! *btns* ri fila-vec)))
 
 ;; =========================================================
-;; Funcion refrescar que se encarga de reiniciar el grid 
+;; Refrescar celdas
 ;; =========================================================
 (define (refrescar-grid!)
   (for ([ri (in-range *filas*)])
@@ -135,11 +123,15 @@
 
 (define (refrescar-celda! ri rj)
   (define b (vector-ref (vector-ref *btns* ri) rj))
-  (if (visible? *mascara* ri rj)
-      (refrescar-celda-visible! b ri rj)
-      (begin
-        (send b set-label " ")
-        (send b enable #t))))
+  (cond
+    [(hayBand? *mascara* ri rj)
+     (send b set-label "P")
+     (send b enable #t)]
+    [(visible? *mascara* ri rj)
+     (refrescar-celda-visible! b ri rj)]
+    [else
+     (send b set-label " ")
+     (send b enable #t)]))
 
 (define (refrescar-celda-visible! b ri rj)
   (define v (valor-en *tablero* ri rj))
@@ -149,29 +141,32 @@
     [else (send b set-label (number->string v))])
   (send b enable #f))
 
-
 ;; =========================================================
-;; Función click que se encarga de llamar a revelar-pos para ver que había en esa posición
-;; Dentro de esta función se encuentra el filtro de cuando pierde (when golpeo?)
-;; Muestra todas las casillas al perder
+;; Click izquierdo normal
 ;; =========================================================
 (define (on-click-celda i j)
-  (define res (revelar-pos *tablero* *mascara* i j *filas* *columnas*))
-  (define nueva-mascara (first res))
-  (define golpeo? (second res))
-  (set! *mascara* nueva-mascara)
-  (refrescar-grid!)
-  (when golpeo?
-    (message-box "Fin del juego" "¡Pisaste una mina!" #f '(ok))
-    ;; Revelar todo tras perder:
-    (set! *mascara*
-          (build-list *filas* (lambda (_)
-                                (build-list *columnas* (lambda (_) 1)))))
-    (refrescar-grid!)))
+  (when (not (bloqueadaband? *mascara* i j)) ; <- no hace nada si hay bandera
+    (define res (revelar-pos *tablero* *mascara* i j *filas* *columnas*))
+    (define nueva-mascara (first res))
+    (define golpeo? (second res))
+    (set! *mascara* nueva-mascara)
+    (refrescar-grid!)
+    (when golpeo?
+      (message-box "Fin del juego" "¡Pisaste una mina!" #f '(ok))
+      ;; Revelar todo tras perder:
+      (set! *mascara*
+            (build-list *filas* (lambda (_) (build-list *columnas* (lambda (_) 1)))))
+      (refrescar-grid!))))
+
+
+;;Actualiza en ij y refresca
+
+(define (clickBand i j)
+  (set! *mascara* (PQband *mascara* i j))
+  (refrescar-grid!))
 
 ;; =========================================================
-;; Función encargada de generar el flujo de instrucciones en el momento de crear el tablero
-;; Como existe la opción de volver a iniciar partida toma en cuenta eso para ya tener todo preparado para ese caso 
+;; Iniciar nuevo juego
 ;; =========================================================
 (define (abrir-configurar-y-generar!)
   (define res (solicitar-configuracion-tablero))
@@ -187,10 +182,16 @@
     (set! *tablero* nuevo-tablero)
     (set! *mascara* nueva-mascara)
     (construir-grid! *filas* *columnas*)
-    (refrescar-grid!)))
-
-
-
-
-
+    (refrescar-grid!)
+    
+;; Pone el botón de banderas hasta que se abra el tablero, si lo tocamos cambia el modo banderas a T
+    ; y con eso se pueden colocar
+    (when (not *check-banderas*)
+      (set! *check-banderas*
+            (new check-box%
+                 [parent barra]
+                 [label "Pon banderas"]
+                 [value #f]
+                 [callback (lambda (cb evt)
+                             (set! *modo-banderas?* (send cb get-value)))])))))
 

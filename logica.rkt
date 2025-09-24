@@ -15,8 +15,10 @@
          valor-en
          es-mina?
          crear-mascara
-         visible?)
-
+         visible?
+         hayBand?
+         bloqueadaband?
+         PQband)
 ;; ==============================
 ;; Crear tablero (ancho x alto)
 ;; ==============================
@@ -151,9 +153,26 @@
 (define (visible? mascara i j)
   (= (list-ref (list-ref mascara i) j) 1))
 
+
+;; Manejo de banderas
+
+(define (hayBand? mascara i j)
+  (equal? (list-ref (list-ref mascara i) j) "P"))
+
+;poner y quitar bandera
+
+(define (PQband mascara i j)
+  (if (hayBand? mascara i j)
+      (actualizar_tablero mascara i j 0)     ;La quita
+      (actualizar_tablero mascara i j "P"))) ;La pone
+
+; Pregunta si una celda está marcada con bandera en la máscara
+
+(define (bloqueadaband? mascara i j)
+  (hayBand? mascara i j))
+
 ;; Funcion que marca como visible u oculta la celda
 ;; Se marca como 0 o 1
-;; Se hace uso de la función actualizar_tablero para irlo actualizando
 (define (set-visible mascara i j val)
   (actualizar_tablero mascara i j val))
 
@@ -252,6 +271,3 @@
        resto filas columnas)
       ;; número > 0
       (revelar-vecinos-cero tablero mascara1 resto filas columnas)))
-
-
-
