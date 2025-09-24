@@ -1,14 +1,26 @@
 #lang racket
+
+(require racket/random) ; para random
+
+
+;; =========================================================
+;; Todo lo que mandamos a interfaz.rkt
+;; =========================================================
 (provide crear-tablero
          parseo-int
          tamano-valido?
-         generar-tablero-consola)
-
-;; Se necesita importar random para generar las minas aleatoriamente
-(require racket/random)
-
+         preparar-tablero
+         revelar-pos
+         en-rango?
+         valor-en
+         es-mina?
+         crear-mascara
+         visible?
+         hayBand?
+         bloqueadaband?
+         PQband)
 ;; ==============================
-;; Crear tablero vacío
+;; Crear tablero (ancho x alto)
 ;; ==============================
 ;; Genera un tablero de ancho x alto
 ;; Cada celda inicializada con valor-inicial (default = 0)
@@ -35,62 +47,66 @@
 (define (tamano-valido? n)
   (and n (<= 8 n 15)))
 
-
 ;; ==============================
-;; Crear el tablero 
+;; Crear el tablero por filas/columnas (lista de listas)
 ;; ==============================
 (define (crear_tablero filas columnas)
-  (build-list filas  ; crea una lista con la cantidad de filas que se desean
-              (lambda (_) (build-list columnas (lambda (_) 0))))) ; Cada fila es lista de ceros
+  (build-list filas
+              (lambda (_)
+                (build-list columnas (lambda (_) 0)))))
 
-
-
+;; ==============================
+;; Actualizar una celda (i,j) con valor
+;; ==============================
 (define (actualizar_tablero tablero fila columna valor)
   (list-update tablero fila
                (lambda (fila-lista)
                  (list-update fila-lista columna (lambda (_) valor)))))
 
-
-
-;;---------------------------------------------------
-;;  Función para generar minas aleatorias
-;;    Recibe el número de minas, filas y columnas
-;;    Devuelve el tablero con las minas
-;;---------------------------------------------------
+;; ========================================================
+;; Generar minas aleatorias
+;;   Recibe: tablero, num-minas, filas, columnas
+;;   Devuelve: tablero con minas "*"
+;; ========================================================
 (define (poner_minas tablero num-minas filas columnas)
-  (define (generar-posicion)
-    (values (random filas) (random columnas))) ; genera fila y columna aleatoria
+  ;; Coloca una sola mina en una posición libre; si cae en una ya ocupada, reintenta.
+  (define (poner-una t)
+    (call-with-values
+      (lambda () (values (random filas) (random columnas)))
+      (lambda (f c)
+        (if (equal? (list-ref (list-ref t f) c) "*")
+            (poner-una t) ; ya había mina: reintenta
+            (actualizar_tablero t f c "*")))))
 
-  (define (poner-una-mina t)
-    (let-values ([(f c) (generar-posicion)])
-      (if (equal? (list-ref (list-ref t f) c) "*")
-          (poner-una-mina t)        ; Si ya hay mina, intenta otra posición
-          (actualizar_tablero t f c "*"))))
+  ;; Repite k veces
+  (define (poner k t)
+    (if (= k 0)
+        t
+        (poner (- k 1) (poner-una t))))
 
-  (if (= num-minas 0)
-      tablero
-      (poner_minas (poner-una-mina tablero) (- num-minas 1) filas columnas)))
+  (poner num-minas tablero))
 
-;;---------------------------------------------------
-;; Función para contar minas alrededor de una celda
-;;---------------------------------------------------
+
+;; =================================
+;; Contar minas alrededor de una celda
+;; Recordar que hubo un cambio, aqui estaba el unico error hasta ahora reportado
+;; ==================================
 (define (contar-minas tablero fila columna filas columnas)
   (define vecinos
-     ;Luis el error estaba aqui, solo se estaba revisando 3 celdas en diagonal, no las 8 vecinas. Para revisarlas se tiene que anidar los bucles por
-    ;por decirlo asi, eso se hace con el "for*/list"
     (for*/list ([i (in-range (- fila 1) (+ fila 2))]
-               [j (in-range (- columna 1) (+ columna 2))]
-               #:when (and (>= i 0) (< i filas) (>= j 0) (< j columnas)
-                           (not (and (= i fila) (= j columna))))) ; excluir la celda central
+                [j (in-range (- columna 1) (+ columna 2))]
+                #:when (and (>= i 0) (< i filas)
+                            (>= j 0) (< j columnas)
+                            (not (and (= i fila) (= j columna)))))
       (list i j)))
-  
   (for/fold ([count 0]) ([v vecinos])
     (if (equal? (list-ref (list-ref tablero (first v)) (second v)) "*")
         (+ count 1)
         count)))
-;;---------------------------------------------------
-;;   Función para llenar el tablero con números me imagino que aqui puede ser el error tambien
-;;---------------------------------------------------
+
+;; =========================================
+;; Llenar el tablero con números
+;; =========================================
 (define (llenar-numeros tablero filas columnas)
   (for/fold ([t tablero]) ([i (in-range filas)])
     (for/fold ([t t]) ([j (in-range columnas)])
@@ -98,57 +114,160 @@
           t
           (actualizar_tablero t i j (contar-minas t i j filas columnas))))))
 
-;; -------------------------------------------
-;; NUEVO: Dificultad -> porcentaje (sin let/map/apply)
-;; -------------------------------------------
-(define (dificultad->porcentaje dif)
+;; =============================================================================================================
+;; Mostrar tablero en consola, por favor que en las siguientes versiones alguien tome esta función y la aplique
+;; Asi cuando estamos con el profe es mas sencillo explicar
+;; =============================================================================================================
+(define (mostrar-tablero tablero)
+  (for-each displayln tablero))
+
+;; =========================================================
+;; De aqui en adelante es las ultimas funciones creadas
+;; Usadas para la logica del tablero final
+;; =========================================================
+
+;; Funcion que verifica si el indice (i,j) se encuentra dentro de los limites
+;; del tablero
+(define (en-rango? i j filas columnas)
+  (and (>= i 0) (< i filas) (>= j 0) (< j columnas)))
+
+;; Funcion que obtiene el valor guardado en la casilla tablero[i][j]
+;; Entonces retorna * o numero dependiendo si es mina o no
+(define (valor-en tablero i j)
+  (list-ref (list-ref tablero i) j))
+
+;; ============================================
+;; Funcion que revisa si en esa casilla es mina
+;; Es un booleano
+;; ============================================
+(define (es-mina? tablero i j)
+  (equal? (valor-en tablero i j) "*"))
+
+;; Funcion que crea una especie de mascara la cual es la que mostramos
+;; con lo que habia en las casillas al ganar o perder (0 = oculta, 1 = visible)
+(define (crear-mascara filas columnas)
+  (build-list filas (lambda (_) (build-list columnas (lambda (_) 0)))))
+
+;; Funcion que pregunta si la casilla ya esta marcada como visible en la "mascara"
+;; Es un booleano
+(define (visible? mascara i j)
+  (= (list-ref (list-ref mascara i) j) 1))
+
+
+;; Manejo de banderas
+
+(define (hayBand? mascara i j)
+  (equal? (list-ref (list-ref mascara i) j) "P"))
+
+;poner y quitar bandera
+
+(define (PQband mascara i j)
+  (if (hayBand? mascara i j)
+      (actualizar_tablero mascara i j 0)     ;La quita
+      (actualizar_tablero mascara i j "P"))) ;La pone
+
+; Pregunta si una celda está marcada con bandera en la máscara
+
+(define (bloqueadaband? mascara i j)
+  (hayBand? mascara i j))
+
+;; Funcion que marca como visible u oculta la celda
+;; Se marca como 0 o 1
+(define (set-visible mascara i j val)
+  (actualizar_tablero mascara i j val))
+
+;; ===============================================================================
+;; Funcion que genera una lista de casillas vecinas a [i,j]
+;; Excluyendo el centro y respetando los límites del tablero
+;; ===============================================================================
+(define (vecinos-de i j filas columnas)
+  (for*/list ([ii (in-range (- i 1) (+ i 2))]
+              [jj (in-range (- j 1) (+ j 2))]
+              #:when (and (en-rango? ii jj filas columnas)
+                          (not (and (= ii i) (= jj j)))))
+    (list ii jj)))
+
+;; =====================================================================================
+;; Esta funcion convierte lo ingresado por el usuario como dificultadad en numero para
+;; hacer las multiplicaciones y generar la cantidad de minas
+;; =====================================================================================
+(define (dificultad_a_porcentaje dif)
   (cond [(eq? dif 'facil)   0.10]
         [(eq? dif 'media)   0.15]
         [(eq? dif 'dificil) 0.20]
         [else               0.10]))
-;; -------------------------------------------
-;; NUEVO: Punto de entrada para la interfaz
-;; Genera tablero según filas/columnas y dificultad,
-;; imprime en consola con tu mostrar-tablero y lo retorna.
-;; Usa SOLO tus funciones existentes: crear_tablero, poner_minas, llenar-numeros.
-;; (sin let/map/apply)
-;; -------------------------------------------
-(define (generar-tablero-consola filas columnas dificultad-sym)
-  ;; normaliza límites mínimos y enteros
+
+;; =================================================================================
+;; Funcion que se encarga de generar el tablero para hacer uso de el en la interfaz
+;; Da todos los datos necesarios por decirlo asi, cantidad de minas, crea tablero,
+;; coloca las minas y llena de números. Crea y devuelve tambien la mascara de
+;; visibilidad inicial que empieza todo oculto obvio
+;; =================================================================================
+(define (preparar-tablero filas columnas dificultad-sym)
   (define filas*    (inexact->exact (floor (if (< filas 2) 2 filas))))
   (define columnas* (inexact->exact (floor (if (< columnas 2) 2 columnas))))
   (define total     (* filas* columnas*))
-  (define porc      (dificultad->porcentaje dificultad-sym))
+  (define porc      (dificultad_a_porcentaje dificultad-sym))
   (define n-minas   (inexact->exact (round (* total porc))))
   (define n-minas*  (if (< n-minas 1) 1 n-minas))
 
-  ;; usa TU creador de tablero por filas/columnas
-  (define tablero-base (crear_tablero filas* columnas*))
-  ;; usa TU generador de minas
-  (define tablero-minas (poner_minas tablero-base n-minas* filas* columnas*))
-  ;; usa TU llenador de números
-  (define tablero-final (llenar-numeros tablero-minas filas* columnas*))
+  (define base          (crear_tablero filas* columnas*))
+  (define con-minas     (poner_minas base n-minas* filas* columnas*))
+  (define tablero-final (llenar-numeros con-minas filas* columnas*))
+  (define mascara       (crear-mascara filas* columnas*))
+  (list tablero-final mascara))
 
-  (printf "Tablero ~ax~a | dificultad: ~a (~a minas)\n"
-          filas* columnas* dificultad-sym n-minas*)
-  (mostrar-tablero tablero-final) ; tu printer
-  tablero-final)
-;;---------------------------------------------------
-;; Función que muestra el tablero
-;;---------------------------------------------------
-(define (mostrar-tablero tablero)
-  (for-each displayln tablero))
+;; Funcion que revela la celda (i,j), si era mina la vuelve visible y genera el "golpe de mina"
+;; Si no era mina:
+;; Si el valor era 0, expande recursivamente como flood fill
+;; https://www-freecodecamp-org.translate.goog/news/flood-fill-algorithm-explained-with-examples/?_x_tr_sl=en&_x_tr_tl=es&_x_tr_hl=es&_x_tr_pto=tc
+;; Si es mayor a cero solo revela esa celda  
+(define (revelar-pos tablero mascara i j filas columnas)
+  (if (es-mina? tablero i j)
+      (list (set-visible mascara i j 1) #t)
+      (list (expandir-cero tablero (set-visible mascara i j 1) i j filas columnas) #f)))
 
-;;---------------------------------------------------
-;; Crear tablero 8x8 con 6 minas 10% nivel facil
-;;---------------------------------------------------
-;(define filas 8)
-;(define columnas 8)
-;(define num-minas 6)
+;; ============================================================
+;; Funcion que si la casilla vale 0, genera una expansión recursiva
+;; mostrando las casillas hasta encontrar numeros mayor a cero, uso de DFS
+;; https://www-programiz-com.translate.goog/dsa/graph-dfs?_x_tr_sl=en&_x_tr_tl=es&_x_tr_hl=es&_x_tr_pto=tc
+;; ============================================================
+(define (expandir-cero tablero mascara i j filas columnas)
+  (define val (valor-en tablero i j))
+  (if (and (number? val) (= val 0))
+      (revelar-vecinos-cero tablero mascara (vecinos-de i j filas columnas) filas columnas)
+      mascara))
 
-;(define tablero (crear-tablero filas columnas))
-;(define tablero-con-minas (poner_minas tablero num-minas filas columnas))
-;(define tablero-final (llenar-numeros tablero-con-minas filas columnas))
+;; Procesa recursivamente la lista de vecinos, los revela y si es otro cero usa DFS otra vez
+(define (revelar-vecinos-cero tablero mascara pares filas columnas)
+  (if (null? pares)
+      mascara
+      (procesar-par-vecino tablero mascara (car pares) (cdr pares) filas columnas)))
 
-;; Mostrar el tablero final
-;(mostrar-tablero tablero-final)
+;; Toma un par '(ii jj), si ya es visible lo salta pero si no, entonces llama a
+;; procesar-no-visible para marcar y decidir si se expande
+(define (procesar-par-vecino tablero mascara par resto filas columnas)
+  (define ii (car par))
+  (define jj (cadr par))
+  (if (visible? mascara ii jj)
+      ;; si ya era visible, seguimos con el resto
+      (revelar-vecinos-cero tablero mascara resto filas columnas)
+      ;; si no era visible, manejamos el caso "no visible"
+      (procesar-no-visible tablero mascara ii jj resto filas columnas)))
+
+;; Esta funcion marca como visible el vecino. Si su valor es 0, realiza DFS
+;; y si era mayor a 0 entonces solo revela y continua 
+(define (procesar-no-visible tablero mascara ii jj resto filas columnas)
+  (define mascara1 (set-visible mascara ii jj 1))
+  (define val (valor-en tablero ii jj))
+  (if (and (number? val) (= val 0))
+      ;; expandimos el cero y seguimos
+      (revelar-vecinos-cero
+       tablero
+       (revelar-vecinos-cero
+        tablero
+        (expandir-cero tablero mascara1 ii jj filas columnas)
+        (vecinos-de ii jj filas columnas) filas columnas)
+       resto filas columnas)
+      ;; número > 0
+      (revelar-vecinos-cero tablero mascara1 resto filas columnas)))
