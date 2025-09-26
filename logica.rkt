@@ -18,7 +18,8 @@
          visible?
          hayBand?
          bloqueadaband?
-         PQband)
+         PQband
+         ganaste?)
 ;; ==============================
 ;; Crear tablero (ancho x alto)
 ;; ==============================
@@ -271,3 +272,15 @@
        resto filas columnas)
       ;; número > 0
       (revelar-vecinos-cero tablero mascara1 resto filas columnas)))
+
+
+;; ==========================================
+;; Verifica si todas las casillas que no son
+;; minas estan abiertas
+;; ==========================================
+(define (ganaste? tablero mascara filas columnas)
+  (for*/and ([i (in-range filas)] ;; Pasa por todo el tablero, tanto filas como columnas
+             [j (in-range columnas)])
+    ;; La condicion de ganar se cumple solo si la casilla es mina o esta abierta y asi por todo el tablero
+    (or (es-mina? tablero i j)
+        (visible? mascara i j))))

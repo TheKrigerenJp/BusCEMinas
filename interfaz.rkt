@@ -156,7 +156,17 @@
       ;; Revelar todo tras perder:
       (set! *mascara*
             (build-list *filas* (lambda (_) (build-list *columnas* (lambda (_) 1)))))
+      (refrescar-grid!))
+     ;; Verifica si ganó
+    (when (and (not golpeo?) (ganaste? *tablero* *mascara* *filas* *columnas*))
+      (message-box "¡Felicidades!" "¡Has ganado el juego!" #f '(ok))
+      ;; Revela las minas del tablero una vez terminado el juego
+      (set! *mascara*
+            (build-list *filas* (lambda (_) (build-list *columnas* (lambda (_) 1)))))
       (refrescar-grid!))))
+            
+        
+    
 
 
 ;;Actualiza en ij y refresca
