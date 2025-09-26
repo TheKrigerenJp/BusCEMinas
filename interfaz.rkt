@@ -14,6 +14,12 @@
 (define *modo-banderas?* #f)   ; este activa o desactiva las banderas desde un botón
 (define *check-banderas* #f)   ; crea el botón de banderas una vez
 
+;; ==== Color pastel y helper seguro =====
+(define pastel-azul (make-object color% 210 225 245))
+(define (try-set-bg w color)
+  (with-handlers ([exn:fail? (lambda (_e) (void))])
+    (send w set-background-color color)))
+
 ;; =========================================================
 ;; Ventana principal
 ;; =========================================================
@@ -25,6 +31,8 @@
 
 (define root (new vertical-panel% [parent frame] [stretchable-height #t] [stretchable-width #t]))
 (define barra (new horizontal-panel% [parent root] [stretchable-height #f] [spacing 8]))
+
+
 
 (new button%
      [parent barra]
@@ -98,6 +106,7 @@
   (for ([ri (in-range filas)])
     (define fila-panel (new horizontal-panel% [parent board-panel] [spacing 0]
                             [stretchable-height #f] [stretchable-width #t]))
+    
     (define fila-vec (make-vector columnas))
     (for ([rj (in-range columnas)])
       (define i0 ri)
@@ -191,6 +200,11 @@
     (set! *columnas* columnas-num)
     (set! *tablero* nuevo-tablero)
     (set! *mascara* nueva-mascara)
+    ;Tablero en consola
+    (printf "Tablero generado (~ax~a, dificultad ~a)\n" *filas* *columnas* dif-sym)
+    (printf "SOLUCIÓN (completa):\n")
+    (mostrar-tablero *tablero*)
+    (newline)
     (construir-grid! *filas* *columnas*)
     (refrescar-grid!)
     

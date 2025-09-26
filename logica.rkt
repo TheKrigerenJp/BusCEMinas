@@ -19,7 +19,8 @@
          hayBand?
          bloqueadaband?
          PQband
-         ganaste?)
+         ganaste?
+         mostrar-tablero)
 ;; ==============================
 ;; Crear tablero (ancho x alto)
 ;; ==============================
@@ -121,6 +122,7 @@
 ;; =============================================================================================================
 (define (mostrar-tablero tablero)
   (for-each displayln tablero))
+
 
 ;; =========================================================
 ;; De aqui en adelante es las ultimas funciones creadas
